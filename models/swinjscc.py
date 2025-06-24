@@ -8,37 +8,46 @@ from models.model_base import BaseModel
 from modules.swinencoder import create_encoder
 from modules.swindecoder import create_decoder
 from collections import OrderedDict
-try:
-    from backpack import backpack, extend
-    from backpack.extensions import BatchGrad
-except:
-    backpack = None
 
-# from config import config
+from backpack import backpack, extend
+from backpack.extensions import BatchGrad
+
+
+
 class SWINJSCC(BaseModel):
     def __init__(self, args, in_channel, class_num):
         super(SWINJSCC, self).__init__(args, in_channel, class_num)
         self.args = args
-        # print("sdfdfs", args.ratio)
-        # print("egwreg",args.base_snr)
         if isinstance(args.ratio, list):
             raise ValueError(f"args.ratio must be a single value, not a list: {args.ratio}")
         self.squared_difference = torch.nn.MSELoss(reduction='none')
-        # self.distortion_loss = Distortion(args)
         self.in_channel = in_channel
         self.class_num = class_num
         self.downsample = args.downsample
         encoder_kwargs = args.encoder_kwargs
         decoder_kwargs = args.decoder_kwargs
+        
         self.encoder = create_encoder(**encoder_kwargs)
         self.decoder = create_decoder(**decoder_kwargs)
+        
+        #Extend các module tương thích với backpack
+        def extend_supported_modules(model):
+            supported_modules = (nn.Linear,nn.ModuleList)
+            for module in model.modules():
+                if isinstance(module, supported_modules) and len(list(module.parameters())) > 0:
+                    extend(module)
+                    
+        extend_supported_modules(self.decoder)
+        # for module in self.decoder.modules():
+        #     if len(list(module.parameters())) > 0:  # Chỉ extend module có tham số
+        #         extend(module)
+        # for module in self.encoder.modules():
+        #     if len(list(module.parameters())) > 0:  # Chỉ extend module có tham số
+        #         extend(module)
         self.device = torch.device("cuda" if torch.cuda.is_available() and args.device else "cpu")
         self.pass_channel = args.pass_channel
         self.H = self.W = 0
         self.name = "SwinJSCC"
-        #self.multiple_snr = [int(snr) for snr in args.snr_list]
-        #self.snr = int(args.base_snr)
-        #self.channel = Channel(channel_type="AWGN", snr=self.snr)
         self.channel_number = int(args.ratio * (2 * 3 * 2 ** (self.downsample * 2)))
     def feature_pass_channel(self, feature):
         noisy_feature = self.channel(feature)  # Loại bỏ avg_pwr
