@@ -228,6 +228,7 @@ class SwinJSCC_Encoder(nn.Module):
         self.patch_embed = PatchEmbed(img_size, 2, 3, embed_dims[0]) # ìmg_size, patch_size(2x2), in_chans(img), embed_dim
         #=> tensor B, num_patches(H/2*W/2), embed_dim(C1) 
         self.hidden_dim = int(self.embed_dims[len(embed_dims)-1] * 1.5)
+        
         self.layer_num = layer_num = 7 # 7 tầng SM 
 
         # build layers
@@ -247,8 +248,8 @@ class SwinJSCC_Encoder(nn.Module):
 
             self.layers.append(layer) # thêm các stage  vào list
         self.norm = norm_layer(embed_dims[-1]) # LayerNorm. số chiều stage cuối 
-        if C != None: # nếu không dùng Rate Modnet 
-            self.head_list = nn.Linear(embed_dims[-1], C)  
+        # if C != None: # nếu không dùng Rate Modnet 
+        #     self.head_list = nn.Linear(embed_dims[-1], C)  
         self.apply(self._init_weights)
  ### Channel ModNet ####### 
         self.bm_list = nn.ModuleList() # chứa SM module thứ i biến đổi SNR 

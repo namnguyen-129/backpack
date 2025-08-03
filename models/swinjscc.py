@@ -30,25 +30,28 @@ class SWINJSCC(BaseModel):
         self.encoder = create_encoder(**encoder_kwargs)
         self.decoder = create_decoder(**decoder_kwargs)
         
-        #Extend các module tương thích với backpack
-        def extend_supported_modules(model):
-            supported_modules = (nn.Linear,nn.ModuleList)
-            for module in model.modules():
-                if isinstance(module, supported_modules) and len(list(module.parameters())) > 0:
-                    extend(module)
-                    
-        extend_supported_modules(self.decoder)
-        # for module in self.decoder.modules():
-        #     if len(list(module.parameters())) > 0:  # Chỉ extend module có tham số
-        #         extend(module)
-        # for module in self.encoder.modules():
-        #     if len(list(module.parameters())) > 0:  # Chỉ extend module có tham số
-        #         extend(module)
+        for  module in self.decoder.modules():
+            if isinstance(module, nn.Linear) and len(list(module.parameters())) > 0:
+                extend(module)
+
+        self._register_hooks()
+      
         self.device = torch.device("cuda" if torch.cuda.is_available() and args.device else "cpu")
         self.pass_channel = args.pass_channel
         self.H = self.W = 0
         self.name = "SwinJSCC"
         self.channel_number = int(args.ratio * (2 * 3 * 2 ** (self.downsample * 2)))
+
+    def _register_hooks(self):
+        # Đăng ký hook cho các module nn.Linear
+        for module in self.decoder.modules():
+            if isinstance(module, nn.Linear):
+                module.register_forward_hook(self.save_output)
+
+    def save_output(self, module, input, output):
+        module.output = output
+        #print(f"Hook called for module {module}, output shape: {output.shape}")
+
     def feature_pass_channel(self, feature):
         noisy_feature = self.channel(feature)  # Loại bỏ avg_pwr
         return noisy_feature
@@ -92,8 +95,8 @@ class SWINJSCC(BaseModel):
 
         return recon_image, CBR, snr_chan
 
-    def get_latent(self, x):
-        enc,_ = self.encoder(x)
+    def get_latent(self, x,snr):
+        enc,_ = self.encoder(x,snr,self.channel_number)
         enc = self.normalize_layer(enc)
         return enc
 
@@ -171,3 +174,44 @@ class SWINJSCC(BaseModel):
         recon_image = self.decoder(noisy_feature, snr_chan)
 
         return recon_image
+
+
+    # def channel_perturb(self, input_image, snrs):
+    #     B, C, H, W = input_image.shape
+    #     D = snrs.size(1)
+
+    # # 1) Expand input_image thành (B, D, C, H, W)
+    #     x = input_image.unsqueeze(1).expand(-1, D, -1, -1, -1)  # (B, D, C, H, W)
+    #     x_flat = x.reshape(B*D, C, H, W)                         # (B*D, C, H, W)
+
+    # # 2) Flatten snrs thành (B*D,)
+    #     snr_flat = snrs.reshape(B*D)
+
+    # # 3) Encoder → feature + mask
+    #     feat_flat, mask_flat = self.encoder(x_flat, snr_flat, self.channel_number)
+    # #    feat_flat: (B*D, L, C_feat); mask_flat same shape
+
+    # # 4) Chuyển feature_flat thành 4D để pass channel
+    #     L = feat_flat.size(1)
+    #     H_p = H  // (2 ** self.downsample)
+    #     W_p = W  // (2 ** self.downsample)
+    #     C_feat = feat_flat.size(2)
+
+    #     feat_4d = feat_flat.view(B*D, H_p, W_p, C_feat).permute(0, 3, 1, 2)
+    # # → (B*D, C_feat, H_p, W_p)
+
+    # # 5) Thiết lập kênh theo snr_flat và pass nhiễu
+    # #    change_channel cần chấp nhận snr vector!
+    #     self.change_channel(snr=snr_flat)
+    #     noisy_4d = self.feature_pass_channel(feat_4d)  # (B*D, C_feat, H_p, W_p)
+
+    # # 6) Quay về (B*D, L, C_feat) và apply mask
+    #     noisy_flat = noisy_4d.flatten(2).permute(0, 2, 1)  # (B*D, L, C_feat)
+    #     noisy_flat = noisy_flat * mask_flat                # element‑wise
+
+    # # 7) Decode một lần duy nhất
+    #     recon_flat = self.decoder(noisy_flat, snr_flat)   # → (B*D, 3, H, W)
+
+    # # 8) Reshape lại (B, D, 3, H, W)
+    #     recon = recon_flat.view(B, D, 3, H, W)
+    #     return recon

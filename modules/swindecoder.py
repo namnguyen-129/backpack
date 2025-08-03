@@ -96,9 +96,8 @@ class SwinJSCC_Decoder(nn.Module):
                                norm_layer=norm_layer,
                                upsample=PatchReverseMerging)
             self.layers.append(layer)
-
-        if C != None:
-            self.head_list = nn.Linear(C, embed_dims[0])
+        # if C != None:
+        #     self.head_list = nn.Linear(C, embed_dims[0])
         self.apply(self._init_weights)
         self.hidden_dim = int(self.embed_dims[0] * 1.5)
         self.layer_num = layer_num = 7

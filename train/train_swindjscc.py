@@ -34,7 +34,9 @@ class SWINJSCCTrainer(BaseTrainer):
         super().__init__(args)
         # Khởi tạo model SwinJSCC với args
         self.model = SWINJSCC(args, self.in_channel, self.class_num).to(self.device)
-        self.model.decoder=extend(self.model.decoder)
+        #self.model.decoder=extend(self.model.decoder)
+
+        #self.model._register_hooks()
 
         self.optimizer = Adam(self.model.parameters(), lr=args.lr)
         self.criterion = nn.MSELoss(reduction='mean')  
@@ -50,7 +52,7 @@ class SWINJSCCTrainer(BaseTrainer):
         for name, m in self.model.decoder.named_modules():
             if isinstance(m, nn.Linear):
                 print(f"  {name}: {m}")    
-        self.bce_extended = extend(nn.MSELoss(reduction='mean'))
+        self.bce_extended = extend(nn.MSELoss(reduction='none'))
         self.update_count = 0
         self.domain_list = args.domain_list
         print(self.domain_list)
@@ -62,7 +64,7 @@ class SWINJSCCTrainer(BaseTrainer):
     
     def train(self):
         domain_list = self.domain_list 
-        print()
+        
         for epoch in range(self.args.out_e):
             self.model.train()
 
@@ -75,21 +77,28 @@ class SWINJSCCTrainer(BaseTrainer):
                 all_out = []
                 len_minibatches = []
                 for i, domain_str in enumerate(domain_list):
-                    channel_type, snr = self.parse_domain(domain_str)
-                    out = self.model.channel_perturb(x, channel_type, snr)
+                    chan_type, snr_chan = self.parse_domain(domain_str)
+                    #self.model.change_channel(channel_type=chan_type, snr=snr_chan)
+                    out = self.model.channel_perturb(x, chan_type, snr_chan)
+                    z = self.model.get_latent(x,snr_chan)
+                    z = self.model.channel(z)
+                    #out, _, _ = self.model(x, snr_chan)
+                    print("Out shape",out.shape)
                     # FIXME the tensors should be flattened later
                     all_in.append(x)  
-                    all_out.append(out)
+                    all_out.append(out) # output model (->encoder->channel->decoder->out)
                     len_minibatches.append(x.shape[0])
                 
                 for name, module in self.model.decoder.named_modules():
                     if isinstance(module, nn.Linear):
                         if hasattr(module, 'output'):
                             print(f"{name} có thuộc tính 'output': {module.output.shape}")
-                    else:
-                        print(f"{name} không có thuộc tính 'output'")
+                        else:
+                            print(f"{name} không có thuộc tính 'output'")
                 all_in = torch.cat(all_in, dim=0)
                 all_out = torch.cat(all_out, dim=0)
+                print("Shapeee",all_in.shape)
+                print("Sh", all_out.shape)
                 print("len_minibatch",len_minibatches)
                 print("num_domain,", self.num_domains)
                 penalty = self.compute_fishr_penalty(all_out, all_in, len_minibatches)
@@ -110,19 +119,54 @@ class SWINJSCCTrainer(BaseTrainer):
             self.writer.add_scalar('train/loss', epoch_train_loss, epoch)
             print(f"[Train] Epoch {epoch}: loss = {epoch_train_loss:.4f}")
 
-            # Validation
-            # self.model.eval()
-            # with torch.no_grad():
-            #     for test_imgs, test_labels in tqdm(self.test_dl):
-            #         test_imgs, test_labels = test_imgs.to(self.device), test_labels.to(self.device)
-            #         self.model.change_channel(channel_type = 'Rayleigh', snr = 13)
-            #         test_rec,_,_ = self.model.forward(test_imgs,snr)
-            #         loss = self.criterion(test_imgs, test_rec)
-            #         epoch_val_loss += loss.detach().item()
-            #     epoch_val_loss /= len(self.test_dl)
-            #     self.writer.add_scalar('val/_loss', epoch_val_loss, epoch)
-            #     print('Validation Loss:', epoch_val_loss)
-            # Lưu checkpoint
+
+
+        # domain_list = self.domain_list             
+        # D = len(domain_list)
+        # snr_vals = []
+        # for dom in domain_list:
+        #     _, snr = self.parse_domain(dom)
+        #     snr_vals.append(snr)
+        # snr_vals = torch.tensor(snr_vals, device=self.device) # (D,)
+
+        # for epoch in range(self.args.out_e):
+        #     total_loss = 0
+        #     for x, y in tqdm(self.train_dl, desc=f"Epoch {epoch}"):
+        #         x = x.to(self.device)   # (B, C, H, W)
+        #         B = x.size(0)
+
+        #     # 1) Tạo snr tensor (B, D)
+        #         snrs = snr_vals.unsqueeze(0).expand(B, D)  # (B, D)
+
+        #     # 2) Forward qua channel_perturb cho tất cả domains
+        #         out = self.model.channel_perturb(x, snrs)   # (B, D, 3, H, W)
+
+        #     # 3) Reshape để tính loss chung
+        #         out_all = out.view(B*D, 3, x.size(2), x.size(3))
+        #         x_all   = x.unsqueeze(1).expand(-1, D, -1, -1, -1).reshape(B*D, 3, x.size(2), x.size(3))
+
+        #     # 4) Tính Fishr penalty (nếu cần) per‑domain
+        #     #    reshape out_all → (B, D, 3, H, W) rồi tách domains
+        #         penalty = self.compute_fishr_penalty(
+        #             out_all.view(B, D, 3, *x_all.shape[2:]),
+        #             x_all .view(B, D, 3, *x_all.shape[2:]),
+        #             len_minibatches=[B]*D
+        #         )
+
+        #     # 5) Loss + backward
+        #         loss = self.criterion(out_all, x_all)
+        #         objective = loss + self.penalty_weight * penalty
+
+        #         self.optimizer.zero_grad()
+        #         objective.backward()
+        #         self.optimizer.step()
+
+        #         total_loss += objective.item()
+
+        #     avg_loss = total_loss / len(self.train_dl)
+        #     print(f"[Train] Epoch {epoch}: loss = {avg_loss:.4f}")
+        #     self.writer.add_scalar('train/loss', avg_loss, epoch)
+           
             self.save_model(epoch=epoch, model=self.model)
 
         self.writer.close()
@@ -137,41 +181,135 @@ class SWINJSCCTrainer(BaseTrainer):
             torch.cat(tuple([t.view(-1) for t in dict_2_values]))
         ).pow(2).mean()
 
-    def compute_fishr_penalty(self, all_logits, all_y, len_minibatches):
-        print("all_y shape:", all_y.shape)
-        dict_grads = self._get_grads(all_logits, all_y)
+    def compute_fishr_penalty(self, all_out, all_in,  len_minibatches):
+        print("all_y shape:", all_in.shape)
+        dict_grads = self._get_grads(all_out, all_in)
         grads_var_per_domain = self._get_grads_var_per_domain(dict_grads, len_minibatches)
         return self._compute_distance_grads_var(grads_var_per_domain)
 
-    def _get_grads(self, logits,y):
-        self.optimizer.zero_grad()
-        loss = self.bce_extended(logits, y).sum()
-        try:
-            with backpack(BatchGrad()):
-                loss.backward(inputs=list(self.model.decoder.parameters()), create_graph=True)
-        except Exception as e:
-            print("❌ Lỗi khi chạy backward với BatchGrad():", e)
-            return
+    # def _get_grads(self, out, input):
+    #     self.optimizer.zero_grad()
 
-    # Kiểm tra trạng thái extend dựa trên grad_batch
-        print("\n🔍 Kiểm tra trạng thái extend (dựa trên grad_batch):")
-        for name, param in self.model.decoder.named_parameters():
-            status = "Extended" if hasattr(param, 'grad_batch') else "Not Extended"
-            print(f"  {name:50s} → {status}")
-            if hasattr(param, 'grad_batch'):
-                print(f"    grad_batch shape: {tuple(param.grad_batch.shape)}")
+    #     ##
+    #     print("\n🔍 Danh sách module nn.Linear trước forward pass:")
+    #     linear_modules = []
+    #     for name, module in self.model.decoder.named_modules():
+    #         if isinstance(module, nn.Linear):
+    #             linear_modules.append((name, module))
+    #             print(f"  {name:50s} → Has output: {hasattr(module, 'output')}")
+    
+    # # Forward pass để đảm bảo tất cả module được gọi
+    #     self.model.eval()  # Chuyển sang eval để không ảnh hưởng trọng số
+    #     try:
+    #         for i, domain_str in enumerate(self.domain_list):
+    #             chan, snr = self.parse_domain(domain_str)
+    #             _ = self.model.channel_perturb(input[i*128:(i+1)*128], chan, snr)
+    #         print("\n🔍 Danh sách module nn.Linear sau forward pass:")
+    #         for name, module in linear_modules:
+    #             has_output = hasattr(module, 'output')
+    #             print(f"  {name:50s} → Has output: {has_output}")
+    #             if has_output:
+    #                 print(f"    Output shape: {module.output.shape}")
+    #             else:
+    #                 print(f"    [WARNING] Module {name} thiếu 'output'!")
+    #     except Exception as e:
+    #         print(f"Error in forward pass in _get_grads: {e}")
+    #         return OrderedDict()
+    #     ####
+    #     self.model.train()
+    #     loss = self.bce_extended(out, input).sum()
+    #     try:
+    #         with backpack(BatchGrad()):
+    #             loss.backward(inputs=list(self.model.decoder.parameters()), create_graph=True)
+    #         print("\n🔍 Kiểm tra sau backward pass:")
+    #         for name, module in linear_modules:
+    #             print(f"  {name:50s} → Has grad_batch: {hasattr(module.weight, 'grad_batch')}")
+    #     except Exception as e:
+    #         print(f"❌ Lỗi khi chạy backward với BatchGrad(): {e}")
+    #         print("\n🔍 Các module nn.Linear thiếu 'output':")
+    #         for name, module in linear_modules:
+    #             if not hasattr(module, 'output'):
+    #                 print(f"  {name:50s} → Thiếu 'output'")
+    #         return OrderedDict()
+    
+    #     dict_grads = OrderedDict()
+    #     for name, param in self.model.decoder.named_parameters():
+    #         if hasattr(param, "grad_batch"):
+    #             dict_grads[name] = param.grad_batch.clone().detach().view(param.grad_batch.size(0), -1)
+    #             print(f"[INFO] Added grad for {name}, shape: {dict_grads[name].shape}")
+    #         else:
+    #             print(f"[INFO] Skipping {name} (no grad_batch)")
+    #     return dict_grads
 
-        # compute individual grads for all samples across all domains simultaneously
-        dict_grads = OrderedDict()
-        for name, weights in self.model.decoder.named_parameters():
-                    if hasattr(weights, "grad_batch"):
-                        dict_grads[name] = weights.grad_batch.clone().view(weights.grad_batch.size(0), -1)
-                    # else:
-                    #     print(f"[❗WARN] {name} has not been extended! → Có thể gây lỗi `grad_batch`.")    
-        print("Keys in dict_grads:", list(dict_grads.keys()))     
-          
+    # def _get_grads(self, out, inp):
+    #     # out, inp are already concatenated tensors
+    #     self.optimizer.zero_grad()
+    #     for m in self.model.decoder.modules():
+    #         if isinstance(m, nn.Linear) and hasattr(m, 'output'):
+    #             del m.output
         
-        return dict_grads
+    #     chunk = inp.size(0) // 2
+    #     for i, dom in enumerate(self.domain_list):
+    #         inp_i = inp[i*chunk:(i+1)*chunk]
+    #         _ = self.model.channel_perturb(inp_i, *self.parse_domain(dom))
+
+    #     loss = self.bce_extended(out, inp).sum()
+    #     # ensure hooks populated from previous forward
+    #     with backpack(BatchGrad()):
+    #         loss.backward(create_graph=True)
+
+    #     grads = OrderedDict()
+    #     for name, param in self.model.decoder.named_parameters():
+    #         if hasattr(param, 'grad_batch'):
+    #             grads[name] = param.grad_batch.detach().view(param.grad_batch.size(0), -1)
+    #     return grads
+
+    def _get_grads(self, out, inp):
+        D = len(self.domain_list)
+        B_total = inp.size(0)
+        chunk = B_total // D
+
+    # 0) Clear old outputs
+        for m in self.model.decoder.modules():
+            if isinstance(m, nn.Linear) and hasattr(m, 'output'):
+                del m.output
+
+    # 1) Log trước khi forward lại
+        print(f"[_get_grads] B_total={B_total}, domains={D}, chunk={chunk}")
+
+    # 2) Forward từng slice, logging tên domain + shape
+        for i, dom in enumerate(self.domain_list):
+            start, end = i*chunk, (i+1)*chunk
+            inp_i = inp[start:end]
+            print(f"  Domain {i}='{dom}': inp_i.shape={tuple(inp_i.shape)}")
+            _ = self.model.channel_perturb(inp_i, *self.parse_domain(dom))
+
+    # 3) Kiểm tra modules thiếu output
+        missing = [
+            name for name, module in self.model.decoder.named_modules()
+            if isinstance(module, nn.Linear) and not hasattr(module, 'output')]
+        print(f"[_get_grads] Modules missing output ({len(missing)}): {missing[:10]}{'...' if len(missing)>10 else ''}")
+
+    # 4) Tính loss và backward
+        loss = self.bce_extended(out, inp).sum()
+        with backpack(BatchGrad()):
+    # Thay vì backward, dùng autograd.grad sẽ không tạo cycle trong .grad
+            loss.backward(create_graph=True)
+            # grads_list = torch.autograd.grad(
+            #     outputs=loss,
+            #     inputs=list(self.model.decoder.parameters()),
+            #     create_graph=True,
+            #     retain_graph=True,
+            #     allow_unused=True
+            # )
+
+    # 5) Thu grad_batch như cũ
+        grads = OrderedDict()
+        for name, param in self.model.decoder.named_parameters():
+            if hasattr(param, 'grad_batch'):
+                grads[name] = param.grad_batch.detach().view(param.grad_batch.size(0), -1)
+        return grads
+
 
     def _get_grads_var_per_domain(self, dict_grads, len_minibatches):
         # grads var per domain
