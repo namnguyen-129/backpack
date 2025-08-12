@@ -57,10 +57,10 @@ class SWINJSCC(BaseModel):
         return noisy_feature
 
 
-    def forward(self, input_image,snr_chan):  # input_image: là x
+    def forward(self, input_image, chan_type,snr_chan):  # input_image: là x
         B, _, H, W = input_image.shape
         #print("Channel swin is", self.channel.get_channel())
-
+        self.change_channel(channel_type=chan_type, snr=snr_chan)
         if H != self.H or W != self.W:
             self.encoder.update_resolution(H, W)
             self.decoder.update_resolution(H // (2 ** self.downsample), W // (2 ** self.downsample))
