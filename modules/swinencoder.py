@@ -284,6 +284,7 @@ class SwinJSCC_Encoder(nn.Module):
                 temp = self.sm_list1[i](temp)
 
             bm = self.bm_list1[i](snr_batch).unsqueeze(1).expand(-1, H * W // (self.num_layers ** 4), -1)
+            
             temp = temp * bm
         mod_val1 = self.sigmoid1(self.sm_list1[-1](temp))
         x = x * mod_val1

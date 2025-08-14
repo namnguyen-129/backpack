@@ -179,29 +179,5 @@ class SWINJSCC(BaseModel):
         noisy_feature = noisy_feature * mask
 
         all_out = self.decoder(all_after_encode, snr_chan_list)
-        #     B, L, C = feature.shape
-        #     H_patch = input_image.shape[2] // (2**self.downsample)
-        #     W_patch = input_image.shape[3] // (2**self.downsample)
-        #     assert H_patch * W_patch == L, (
-        #     f"Mismatch tokens: L={L} nhưng H_patch×W_patch="
-        #     f"{H_patch}×{W_patch}={H_patch*W_patch}"
-        #     )
-        #     #H = W = int(L**0.5)  # Giả định L là số lượng patch (H * W)
-        #     feature_4D = feature.reshape(B, H_patch, W_patch, C).permute(0, 3, 1, 2)  # Chuyển đổi về (B, C, H, W)
-
-        #     # Qua kênh
-        #     self.change_channel(channel_type=chan_type, snr=snr_chan)
-        #     #print("Name of channel: ", self.channel.get_channel())
-        #     noisy_feature_4D = self.feature_pass_channel(feature_4D)
-
-        #     # Chuyển đổi noisy_feature về 3D để truyền vào decoder
-        #     noisy_feature = noisy_feature_4D.flatten(2).permute(0, 2, 1)  # Chuyển đổi về (B, L, C)
-        # else:
-        #     noisy_feature = feature
-
-        # noisy_feature = noisy_feature * mask
-        # # Decode
-        # recon_image = self.decoder(noisy_feature, snr_chan)
-
         return all_out
 

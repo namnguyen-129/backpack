@@ -57,9 +57,9 @@ def get_cifar10(args):
     )
 
     train_set = CIFAR10(root=path, train=True, download=True, transform=transform)
-    train_dl = DataLoader(train_set, batch_size=args.bs, shuffle=True)
+    train_dl = DataLoader(train_set, batch_size=args.bs, shuffle=True, drop_last=True)
     test_set = CIFAR10(root=path, train=False, download=True, transform=transform)
-    test_dl = DataLoader(test_set, batch_size=args.bs, shuffle=False)
+    test_dl = DataLoader(test_set, batch_size=args.bs, shuffle=False, drop_last=True)
     valid_set = CIFAR10(root=path, train=False, download=True, transform=transform)
     valid_dl = DataLoader(valid_set, batch_size=args.bs, shuffle=False)
     return (train_dl, test_dl, valid_dl), args

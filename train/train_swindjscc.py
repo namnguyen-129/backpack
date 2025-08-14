@@ -310,6 +310,7 @@ class SWINJSCCTrainer(BaseTrainer):
             epoch_val_loss = 0
             for batch_idx, (x, y) in enumerate(tqdm(self.train_dl, desc=f"Epoch {epoch}")): 
                 x, y = x.to(self.device), y.to(self.device)
+                print(f"Epoch {epoch}, batch {batch_idx}: size = {x.shape[0]}")
                 total_loss = 0
                 all_in = []
                 all_out = []
@@ -319,6 +320,12 @@ class SWINJSCCTrainer(BaseTrainer):
                     all_in.append(x)  
                     len_minibatches.append(x.shape[0])
                 
+                # for name, module in self.model.named_modules():
+                #     if isinstance(module, nn.Linear):
+                #         if hasattr(module, 'output'):
+                #             print(f"{name} có thuộc tính 'output': {module.output.shape}")
+                #         else:
+                #             print(f"{name} không có thuộc tính 'output'")
                 
                 all_in = torch.cat(all_in, dim=0)
                 all_out = self.model.channel_perturb(all_in, domain_list)
@@ -454,9 +461,9 @@ class SWINJSCCTrainer(BaseTrainer):
             grads_var_per_domain[domain_id] = self.ema_per_domain[domain_id].update(
                 grads_var_per_domain[domain_id]
             )
-        for domain_id in range(self.num_domains):
-            for k in grads_var_per_domain[domain_id].keys():
-                print("Available keys:", k)
+        # for domain_id in range(self.num_domains):
+        #     for k in grads_var_per_domain[domain_id].keys():
+                #print("Available keys:", k)
         return grads_var_per_domain
 
     def _compute_distance_grads_var(self, grads_var_per_domain):
