@@ -114,12 +114,18 @@ class SwinJSCC_Decoder(nn.Module):
         self.sigmoid = nn.Sigmoid()
         self.device = device  # Gán thiết bị vào thuộc tính self.device
 
-    def forward(self, x, snr):
+    def forward(self, x, snr_list):
         """Mặc định là SwinJSCC_w/_SAandRA"""
         B, L, C = x.size()
-        #print("SNR is ",snr)
-        snr_cuda = torch.tensor(snr, dtype=torch.float, device=self.device)  # Đảm bảo tensor được tạo trên đúng thiết bị
-        snr_batch = snr_cuda.unsqueeze(0).expand(B, -1)
+        print('Shape of input channel', x.shape)
+        batch_size = 128
+        device=torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        snr_expanded = []
+        for snr_val in snr_list:  
+            snr_expanded.extend([snr_val] * batch_size)
+        snr_cuda = torch.tensor(snr_expanded, dtype=torch.float, device=device)
+        snr_batch = snr_cuda.unsqueeze(1)
+
         for i in range(self.layer_num):
             if i == 0:
                 temp = self.sm_list[i](x.detach())
@@ -132,63 +138,10 @@ class SwinJSCC_Decoder(nn.Module):
         for i_layer, layer in enumerate(self.layers):
             x = layer(x)
         B, L, N = x.shape
+        print('Shape of output decode', x.shape)
         x = x.reshape(B, self.H, self.W, N).permute(0, 3, 1, 2)
         return x
-        # if model == 'SwinJSCC_w/o_SAandRA':
-        #     x = self.head_list(x)
-        #     for i_layer, layer in enumerate(self.layers):
-        #         x = layer(x)
-        #     B, L, N = x.shape
-        #     x = x.reshape(B, self.H, self.W, N).permute(0, 3, 1, 2)
-        #     return x
 
-        # elif model == 'SwinJSCC_w/_SA':
-        #     B, L, C = x.size()
-        #     device = x.get_device()
-        #     x = self.head_list(x)
-        #     snr_cuda = torch.tensor(snr, dtype=torch.float).to(device)
-        #     snr_batch = snr_cuda.unsqueeze(0).expand(B, -1)
-        #     for i in range(self.layer_num):
-        #         if i == 0:
-        #             temp = self.sm_list[i](x.detach())
-        #         else:
-        #             temp = self.sm_list[i](temp)
-        #         bm = self.bm_list[i](snr_batch).unsqueeze(1).expand(-1, L, -1)
-        #         temp = temp * bm
-        #     mod_val = self.sigmoid(self.sm_list[-1](temp))
-        #     x = x * mod_val
-        #     for i_layer, layer in enumerate(self.layers):
-        #         x = layer(x)
-        #     B, L, N = x.shape
-        #     x = x.reshape(B, self.H, self.W, N).permute(0, 3, 1, 2)
-        #     return x
-
-        # elif model == 'SwinJSCC_w/_RA':
-        #     for i_layer, layer in enumerate(self.layers):
-        #         x = layer(x)
-        #     B, L, N = x.shape
-        #     x = x.reshape(B, self.H, self.W, N).permute(0, 3, 1, 2)
-        #     return x
-
-        # elif model == 'SwinJSCC_w/_SAandRA':
-        #     B, L, C = x.size()
-        #     device = x.get_device()
-        #     snr_cuda = torch.tensor(snr, dtype=torch.float).to(device)
-        #     snr_batch = snr_cuda.unsqueeze(0).expand(B, -1)
-        #     for i in range(self.layer_num):
-        #         if i == 0:
-        #             temp = self.sm_list[i](x.detach())
-        #         else:
-        #             temp = self.sm_list[i](temp)
-        #         bm = self.bm_list[i](snr_batch).unsqueeze(1).expand(-1, L, -1)
-        #         temp = temp * bm
-        #     mod_val = self.sigmoid(self.sm_list[-1](temp))
-        #     x = x * mod_val
-        #     for i_layer, layer in enumerate(self.layers):
-        #         x = layer(x)
-        #     B, L, N = x.shape
-        #     x = x.reshape(B, self.H, self.W, N).permute(0, 3, 1, 2)
-        #     return x
 
     def _init_weights(self, m):
         if isinstance(m, nn.Linear):
@@ -198,20 +151,6 @@ class SwinJSCC_Decoder(nn.Module):
         elif isinstance(m, nn.LayerNorm):
             nn.init.constant_(m.bias, 0)
             nn.init.constant_(m.weight, 1.0)
-
-    # @torch.jit.ignore
-    # def no_weight_decay(self):
-    #     return {'absolute_pos_embed'}
-
-    # @torch.jit.ignore
-    # def no_weight_decay_keywords(self):
-    #     return {'relative_position_bias_table'}
-
-    # def flops(self):
-    #     flops = 0
-    #     for i, layer in enumerate(self.layers):
-    #         flops += layer.flops()
-    #     return flops
 
     def update_resolution(self, H, W):
         self.input_resolution = (H, W)
@@ -226,21 +165,4 @@ def create_decoder(**kwargs):
     model = SwinJSCC_Decoder(**kwargs)
     return model
 
-
-
-# def build_model(config):
-#     input_image = torch.ones([1, 1536, 256]).to(config.device)
-#     model = create_decoder(**config.encoder_kwargs).to(config.device)
-#     t0 = datetime.datetime.now()
-#     with torch.no_grad():
-#         for i in range(100):
-#             features = model(input_image, SNR=15)
-#         t1 = datetime.datetime.now()
-#         delta_t = t1 - t0
-#         print("Decoding Time per img {}s".format((delta_t.seconds + 1e-6 * delta_t.microseconds) / 100))
-#     print("TOTAL FLOPs {}G".format(model.flops() / 10 ** 9))
-#     num_params = 0
-#     for param in model.parameters():
-#         num_params += param.numel()
-#     print("TOTAL Params {}M".format(num_params / 10 ** 6))
 

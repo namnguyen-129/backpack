@@ -267,23 +267,14 @@ class DGSCTrainer(BaseTrainer):
                 len_minibatches = []
                 for i, domain_str in enumerate(domain_list):
                     channel_type, snr = self.parse_domain(domain_str)
-                    out = self.model(x, channel_type, snr)
-                    # FIXME the tensors should be flattened later
+                    #
                     all_in.append(x)  
-                    all_out.append(out)
-                    print('Shape ò in ',x.shape)
-                    print('Shape of out ', out.shape)
+                    #all_out.append(out)
                     len_minibatches.append(x.shape[0])
 
-                    for name, module in self.model.named_modules():
-                        if isinstance(module, nn.Linear):
-                            if hasattr(module, 'output'):
-                                print(f"{name} có thuộc tính 'output': {module.output.shape}")
-                            else:
-                                print(f"{name} không có thuộc tính 'output'")
-
                 all_in = torch.cat(all_in, dim=0)
-                all_out = torch.cat(all_out, dim=0)
+                #all_out = torch.cat(all_out, dim=0)
+                all_out = self.model(all_in)
                 print('Shape of all_in', all_in.shape)
                 print('Shape of all_out', all_out.shape)
                 penalty = self.compute_fishr_penalty(all_out, all_in, len_minibatches)

@@ -315,28 +315,15 @@ class SWINJSCCTrainer(BaseTrainer):
                 all_out = []
                 len_minibatches = []
                 for i, domain_str in enumerate(domain_list):
-                    chan_type, snr_chan = self.parse_domain(domain_str)
-
-                    #self.model.change_channel(channel_type=chan_type, snr=snr_chan)
-                    out,_,_ = self.model(x, chan_type, snr_chan)
-
-                    #out, _, _ = self.model(x, snr_chan)
-                    print("Out shape",out.shape)
-                    # FIXME the tensors should be flattened later
+      
                     all_in.append(x)  
-                    all_out.append(out) # output model (->encoder->channel->decoder->out)
                     len_minibatches.append(x.shape[0])
                 
-                # for name, module in self.model.decoder.named_modules():
-                #     if isinstance(module, nn.Linear):
-                #         if hasattr(module, 'output'):
-                #             print(f"{name} có thuộc tính 'output': {module.output.shape}")
-                #         else:
-                #             print(f"{name} không có thuộc tính 'output'")
+                
                 all_in = torch.cat(all_in, dim=0)
-                all_out = torch.cat(all_out, dim=0)
-                print("Shapeee",all_in.shape)
-                print("Sh", all_out.shape)
+                all_out = self.model.channel_perturb(all_in, domain_list)
+                print("Shape of all_in",all_in.shape)
+                print("Shape of all_out", all_out.shape)
                 print("len_minibatch",len_minibatches)
                 print("num_domain,", self.num_domains)
                 penalty = self.compute_fishr_penalty(all_out, all_in, len_minibatches)
@@ -401,16 +388,16 @@ class SWINJSCCTrainer(BaseTrainer):
         loss = self.bce_extended(inp, out).sum()
 
     # Thông tin ban đầu
-        print("[BACKPACK] Starting BatchGrad backward")
-        try:
-            print(f"[BACKPACK] loss.requires_grad={loss.requires_grad}, loss.shape?={'scalar' if loss.dim()==0 else loss.shape}")
-        except:
-            pass
+        # print("[BACKPACK] Starting BatchGrad backward")
+        # try:
+        #     print(f"[BACKPACK] loss.requires_grad={loss.requires_grad}, loss.shape?={'scalar' if loss.dim()==0 else loss.shape}")
+        # except:
+        #     pass
 
     # chạy Backpack và bắt lỗi để log
         try:
             with backpack(BatchGrad()):
-                loss.backward()
+                loss.backward(retain_graph = True)
         except Exception as e:
             print(f"[BACKPACK][ERROR] exception during backward: {e}")
         # nếu muốn tiếp tục chạy (không raise) thì comment dòng dưới, nhưng tốt nhất raise để debug
@@ -421,32 +408,32 @@ class SWINJSCCTrainer(BaseTrainer):
         any_gb = False
         for name, weights in self.model.decoder.named_parameters():
             has_gb = hasattr(weights, "grad_batch") and weights.grad_batch is not None
-            print(f"[BACKPACK] param='{name}' has_grad_batch={has_gb}")
+            #print(f"[BACKPACK] param='{name}' has_grad_batch={has_gb}")
             if has_gb:
                 gb = weights.grad_batch  # shape: (B_total, ...)
                 any_gb = True
                 try:
-                    print(f"   grad_batch.shape={tuple(gb.shape)}, dtype={gb.dtype}, device={gb.device}")
+                    #print(f"   grad_batch.shape={tuple(gb.shape)}, dtype={gb.dtype}, device={gb.device}")
                     flat = gb.detach().clone().view(gb.size(0), -1)  # (B, param_numel)
                 # tóm tắt nhanh
                     mean = float(flat.mean()) if flat.numel() > 0 else float("nan")
                     std = float(flat.std()) if flat.numel() > 0 else float("nan")
-                    print(f"   flat.shape={tuple(flat.shape)}, mean={mean:.6e}, std={std:.6e}")
+                    #print(f"   flat.shape={tuple(flat.shape)}, mean={mean:.6e}, std={std:.6e}")
                     dict_grads[name] = flat
                 except Exception as ex:
                     print(f"[BACKPACK][WARN] failed to flatten grad_batch for {name}: {ex}")
 
         if not any_gb:
-            print("[BACKPACK][WARN] NO grad_batch produced for ANY decoder parameter.")
-            print("[BACKPACK][WARN] Possible reasons: decoder not used in forward, extend(...) missing, module types not supported by BackPACK, or graph mismatch between forward/backward.")
-            print("[BACKPACK] Decoder modules and types:")
+            # print("[BACKPACK][WARN] NO grad_batch produced for ANY decoder parameter.")
+            # print("[BACKPACK][WARN] Possible reasons: decoder not used in forward, extend(...) missing, module types not supported by BackPACK, or graph mismatch between forward/backward.")
+            # print("[BACKPACK] Decoder modules and types:")
             for nm, m in self.model.decoder.named_modules():
                 print(f"   - {nm}: {type(m).__name__}")
-            print("[BACKPACK] Decoder parameters and shapes:")
+            #print("[BACKPACK] Decoder parameters and shapes:")
             for nm, p in self.model.decoder.named_parameters():
                 print(f"   * {nm}: shape={tuple(p.shape)}, requires_grad={p.requires_grad}")
 
-        print("[BACKPACK] Done collecting grad_batch (returning dict_grads keys:", list(dict_grads.keys()), ")")
+        #print("[BACKPACK] Done collecting grad_batch (returning dict_grads keys:", list(dict_grads.keys()), ")")
         return dict_grads
     
 

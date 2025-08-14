@@ -31,7 +31,23 @@ class DGSC_CIFAR(BaseModel):
             if isinstance(module, nn.Linear):
                 extend(module)
 
-    def forward(self, x, chan_type, snr_chan):
+    def parse_domain(self, domain_str):
+        """Extract channel name and SNR from domain string."""
+        channel_name = ''.join([c for c in domain_str if not c.isdigit()])
+        snr = ''.join([c for c in domain_str if c.isdigit()])
+        return channel_name, int(snr)
+
+    def parse_domain_list(self, domain_list):
+        chan_list = []
+        snr_list = []
+        for _,d in enumerate(domain_list):
+            c, s = self.parse_domain(d)
+            chan_list.append(c)
+            snr_list.append(s)
+        return chan_list, snr_list
+
+    def forward(self, x):
+        #chan_type_list, snr_chan_list = self.parse_domain_list(domain_list)
         z = self.encoder(x)
         out = self.decoder(z)
         out = out.view(-1,3,32,32)

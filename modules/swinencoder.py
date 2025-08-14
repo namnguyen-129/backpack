@@ -96,24 +96,6 @@ class SwinTransformerBlock(nn.Module):
 
         return x
 
-    # def extra_repr(self) -> str:
-    #     return f"dim={self.dim}, input_resolution={self.input_resolution}, num_heads={self.num_heads}, " \
-    #            f"window_size={self.window_size}, shift_size={self.shift_size}, mlp_ratio={self.mlp_ratio}"
-
-    # def flops(self):
-    #     flops = 0
-    #     H, W = self.input_resolution
-    #     # norm1
-    #     flops += self.dim * H * W
-    #     # W-MSA/SW-MSA
-    #     nW = H * W / self.window_size / self.window_size
-    #     flops += nW * self.attn.flops(self.window_size * self.window_size)
-    #     # mlp
-    #     flops += 2 * H * W * self.dim * self.dim * self.mlp_ratio
-    #     # norm2
-    #     flops += self.dim * H * W
-    #     return flops
-
     def update_mask(self):
         if self.shift_size > 0:
             # calculate attention mask for SW-MSA
@@ -277,18 +259,24 @@ class SwinJSCC_Encoder(nn.Module):
             self.sm_list1.append(nn.Linear(self.hidden_dim, outdim)) # là Linear layer(FC) với đầu vào là hidden_dim, ra là chính nó hoặc Ci
         self.sigmoid1 = nn.Sigmoid() # Cuói cùng qua sigmoid 
 
-    def forward(self, x, snr, rate, device=torch.device("cuda" if torch.cuda.is_available() else "cpu")):  # Thêm tham số device với giá trị mặc định là 'cpu'
+    def forward(self, x, snr_list, rate, device=torch.device("cuda" if torch.cuda.is_available() else "cpu")):  # Thêm tham số device với giá trị mặc định là 'cpu'
         B, C, H, W = x.size() 
+        batch_size = 128
         #print("snr of encoder ")
         x = self.patch_embed(x) # Giảm kích thước ảnh xuống còn H/2, W/2, số channel là C1
         for i_layer, layer in enumerate(self.layers): # đang ở stage mấy 
             x = layer(x) # x đi qua từng tầng stage 
         x = self.norm(x)
 
-        snr_cuda = torch.tensor(snr, dtype=torch.float).to(device)  # Sử dụng device được truyền vào
+        snr_expanded = []
+        for snr_val in snr_list:  
+            snr_expanded.extend([snr_val] * batch_size)
+        snr_cuda = torch.tensor(snr_expanded, dtype=torch.float, device=device)
         rate_cuda = torch.tensor(rate, dtype=torch.float).to(device)
-        snr_batch = snr_cuda.unsqueeze(0).expand(B, -1)
-        rate_batch = rate_cuda.unsqueeze(0).expand(B, -1)
+        snr_batch = snr_cuda.unsqueeze(1)
+        rate_batch = rate_cuda.unsqueeze(0).expand(B, -1)    # B,1 
+
+        
         for i in range(self.layer_num):
             if i == 0:
                 temp = self.sm_list1[i](x.detach())
@@ -309,10 +297,12 @@ class SwinJSCC_Encoder(nn.Module):
             bm = self.bm_list[i](rate_batch).unsqueeze(1).expand(-1, H * W // (self.num_layers ** 4), -1)
             temp = temp * bm
         mod_val = self.sigmoid(self.sm_list[-1](temp)) # đầu ra layer RM cuối cùng sẽ đi qua sigmoid
+        print('Shape of mod_val', mod_val.shape)
 
         x = x * mod_val # B, num_patches, C4(2)
 
         mask = torch.sum(mod_val, dim=1)
+        print('Shape of mask ', mask.shape )
         sorted, indices = mask.sort(dim=1, descending=True)
 
         c_indices = indices[:, :rate] # Giữ lại rate kênh lớn nhất(số kênh vào channel)
@@ -331,6 +321,7 @@ class SwinJSCC_Encoder(nn.Module):
 
         mask = mask.to(x.device)  # Chuyển mask về cùng thiết bị với x
         x = x * mask
+        print('Shape of output encoder ', x.shape)
         return x, mask
 
 

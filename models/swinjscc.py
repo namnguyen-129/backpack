@@ -29,7 +29,7 @@ class SWINJSCC(BaseModel):
         
         self.encoder = create_encoder(**encoder_kwargs)
         self.decoder = create_decoder(**decoder_kwargs)
-        
+        self.channel = Channel('AWGN', 10)
         for  module in self.decoder.modules():
             if isinstance(module, nn.Linear) and len(list(module.parameters())) > 0:
                 extend(module)
@@ -52,8 +52,8 @@ class SWINJSCC(BaseModel):
         module.output = output
         #print(f"Hook called for module {module}, output shape: {output.shape}")
 
-    def feature_pass_channel(self, feature):
-        noisy_feature = self.channel(feature)  # Loại bỏ avg_pwr
+    def feature_pass_channel(self, feature,chan_type, snr_chan):
+        noisy_feature = self.channel.forward(feature,chan_type, snr_chan)  
         return noisy_feature
 
 
@@ -133,85 +133,75 @@ class SWINJSCC(BaseModel):
             return self.channel.get_channel()
         return None
     
-    def channel_perturb(self, input_image, chan_type, snr_chan):
-        B, _, H, W = input_image.shape
+    def parse_domain(self, domain_str):
+        """Extract channel name and SNR from domain string."""
+        channel_name = ''.join([c for c in domain_str if not c.isdigit()])
+        snr = ''.join([c for c in domain_str if c.isdigit()])
+        return channel_name, int(snr)
 
+    def parse_domain_list(self, domain_list):
+        chan_list = []
+        snr_list = []
+        for _,d in enumerate(domain_list):
+            c, s = self.parse_domain(d)
+            chan_list.append(c)
+            snr_list.append(s)
+        return chan_list, snr_list
+    
+    def channel_perturb(self, input_image, domain_list):
+        B, _, H, W = input_image.shape
+        batch_size = 128
         if H != self.H or W != self.W:
             self.encoder.update_resolution(H, W)
             self.decoder.update_resolution(H // (2 ** self.downsample), W // (2 ** self.downsample))
             self.H = H
             self.W = W
-        feature, mask = self.encoder(input_image, snr_chan, self.channel_number)
-        #print("Featureeee", feature)
-        # CBR = self.channel_number / (2 * 3 * 2 ** (self.downsample * 2))
-        # avg_pwr = torch.sum(feature ** 2) / mask.sum()
+        chan_type_list, snr_chan_list = self.parse_domain_list(domain_list)
+        all_after_encode, mask = self.encoder(input_image, snr_chan_list, self.channel_number)
 
-        if self.pass_channel:
-            # Chuyển đổi feature về 4D trước khi qua kênh
-            #print("Name of channellll: ", self.channel.get_channel()) 
-            B, L, C = feature.shape
-            H_patch = input_image.shape[2] // (2**self.downsample)
-            W_patch = input_image.shape[3] // (2**self.downsample)
-            assert H_patch * W_patch == L, (
-            f"Mismatch tokens: L={L} nhưng H_patch×W_patch="
-            f"{H_patch}×{W_patch}={H_patch*W_patch}"
-            )
+        B, L, C = all_after_encode.shape
+        H_patch = input_image.shape[2] // (2**self.downsample)
+        W_patch = input_image.shape[3] // (2**self.downsample)
+        assert H_patch * W_patch == L, (
+        f"Mismatch tokens: L={L} nhưng H_patch×W_patch="
+        f"{H_patch}×{W_patch}={H_patch*W_patch}"
+        )
             #H = W = int(L**0.5)  # Giả định L là số lượng patch (H * W)
-            feature_4D = feature.reshape(B, H_patch, W_patch, C).permute(0, 3, 1, 2)  # Chuyển đổi về (B, C, H, W)
+        feature_4D = all_after_encode.reshape(B, H_patch, W_patch, C).permute(0, 3, 1, 2)  # Chuyển đổi về (B, C, H, W)
 
             # Qua kênh
-            self.change_channel(channel_type=chan_type, snr=snr_chan)
+        #self.change_channel(channel_type=chan_type, snr=snr_chan)
             #print("Name of channel: ", self.channel.get_channel())
-            noisy_feature_4D = self.feature_pass_channel(feature_4D)
+        noisy_feature_4D = self.feature_pass_channel(feature_4D,chan_type_list, snr_chan_list)        
+        noisy_feature = noisy_feature_4D.flatten(2).permute(0, 2, 1)
 
-            # Chuyển đổi noisy_feature về 3D để truyền vào decoder
-            noisy_feature = noisy_feature_4D.flatten(2).permute(0, 2, 1)  # Chuyển đổi về (B, L, C)
-        else:
-            noisy_feature = feature
 
         noisy_feature = noisy_feature * mask
-        # Decode
-        recon_image = self.decoder(noisy_feature, snr_chan)
 
-        return recon_image
+        all_out = self.decoder(all_after_encode, snr_chan_list)
+        #     B, L, C = feature.shape
+        #     H_patch = input_image.shape[2] // (2**self.downsample)
+        #     W_patch = input_image.shape[3] // (2**self.downsample)
+        #     assert H_patch * W_patch == L, (
+        #     f"Mismatch tokens: L={L} nhưng H_patch×W_patch="
+        #     f"{H_patch}×{W_patch}={H_patch*W_patch}"
+        #     )
+        #     #H = W = int(L**0.5)  # Giả định L là số lượng patch (H * W)
+        #     feature_4D = feature.reshape(B, H_patch, W_patch, C).permute(0, 3, 1, 2)  # Chuyển đổi về (B, C, H, W)
 
+        #     # Qua kênh
+        #     self.change_channel(channel_type=chan_type, snr=snr_chan)
+        #     #print("Name of channel: ", self.channel.get_channel())
+        #     noisy_feature_4D = self.feature_pass_channel(feature_4D)
 
-    # def channel_perturb(self, input_image, snrs):
-    #     B, C, H, W = input_image.shape
-    #     D = snrs.size(1)
+        #     # Chuyển đổi noisy_feature về 3D để truyền vào decoder
+        #     noisy_feature = noisy_feature_4D.flatten(2).permute(0, 2, 1)  # Chuyển đổi về (B, L, C)
+        # else:
+        #     noisy_feature = feature
 
-    # # 1) Expand input_image thành (B, D, C, H, W)
-    #     x = input_image.unsqueeze(1).expand(-1, D, -1, -1, -1)  # (B, D, C, H, W)
-    #     x_flat = x.reshape(B*D, C, H, W)                         # (B*D, C, H, W)
+        # noisy_feature = noisy_feature * mask
+        # # Decode
+        # recon_image = self.decoder(noisy_feature, snr_chan)
 
-    # # 2) Flatten snrs thành (B*D,)
-    #     snr_flat = snrs.reshape(B*D)
+        return all_out
 
-    # # 3) Encoder → feature + mask
-    #     feat_flat, mask_flat = self.encoder(x_flat, snr_flat, self.channel_number)
-    # #    feat_flat: (B*D, L, C_feat); mask_flat same shape
-
-    # # 4) Chuyển feature_flat thành 4D để pass channel
-    #     L = feat_flat.size(1)
-    #     H_p = H  // (2 ** self.downsample)
-    #     W_p = W  // (2 ** self.downsample)
-    #     C_feat = feat_flat.size(2)
-
-    #     feat_4d = feat_flat.view(B*D, H_p, W_p, C_feat).permute(0, 3, 1, 2)
-    # # → (B*D, C_feat, H_p, W_p)
-
-    # # 5) Thiết lập kênh theo snr_flat và pass nhiễu
-    # #    change_channel cần chấp nhận snr vector!
-    #     self.change_channel(snr=snr_flat)
-    #     noisy_4d = self.feature_pass_channel(feat_4d)  # (B*D, C_feat, H_p, W_p)
-
-    # # 6) Quay về (B*D, L, C_feat) và apply mask
-    #     noisy_flat = noisy_4d.flatten(2).permute(0, 2, 1)  # (B*D, L, C_feat)
-    #     noisy_flat = noisy_flat * mask_flat                # element‑wise
-
-    # # 7) Decode một lần duy nhất
-    #     recon_flat = self.decoder(noisy_flat, snr_flat)   # → (B*D, 3, H, W)
-
-    # # 8) Reshape lại (B, D, 3, H, W)
-    #     recon = recon_flat.view(B, D, 3, H, W)
-    #     return recon
