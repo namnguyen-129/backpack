@@ -321,7 +321,8 @@ class SwinJSCC_Encoder(nn.Module):
         mask = mask.unsqueeze(1).expand(-1, H * W // (self.num_layers ** 4), -1)
 
         mask = mask.to(x.device)  # Chuyển mask về cùng thiết bị với x
-        x = x * mask
+        x = x
+       
         print('Shape of output encoder ', x.shape)
         return x, mask
 
