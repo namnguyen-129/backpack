@@ -93,19 +93,19 @@ class SWINJSCCTrainer(BaseTrainer):
                 #             print(f"{name} không có thuộc tính 'output'")
                 
                 all_in = torch.cat(all_in, dim=0)
-                all_out = self.model.channel_perturb(all_in, domain_list)
+                all_out = self.model.channel_perturb(all_in, domain_list,self.num_domains)
                 print("Shape of all_in",all_in.shape)
                 print("Shape of all_out", all_out.shape)
                 print("len_minibatch",len_minibatches)
                 print("num_domain,", self.num_domains)
                 penalty = self.compute_fishr_penalty(all_out, all_in, len_minibatches)
-                loss1 = self.criterion(all_out[0:128], all_in[0:128]) # la so thuc nen phai dung mse khong dung cross entropy 
+                loss1 = self.criterion(all_out, all_in) # la so thuc nen phai dung mse khong dung cross entropy 
                 #loss2 = self.criterion(all_out[128:256], all_in[128:256])
                 #print('Lossss', loss)
              
                 self.update_count += 1
 
-                objective = loss1 
+                objective = loss1 + 0.1 * penalty
                 self.optimizer.zero_grad()
                 objective.backward()
                 self.optimizer.step()

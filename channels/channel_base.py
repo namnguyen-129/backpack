@@ -88,19 +88,29 @@ class Channel(nn.Module):
         else:
             raise ValueError(f"Unknown channel type: {chan_type}")
 
-    def forward(self, z, chan_types=None, snr_vals=None): #chan_list, snr_list
+    def forward(self, z, chan_types=None, snr_vals=None, num_domain = 0): #chan_list, snr_list
     
         if z.dim() != 4:
             raise ValueError("Channel.forward expects 4-D tensor (B,C,H,W)")
 
         B = z.size(0)
+        batch_size = B // num_domain
         device = z.device
         z_noisy = z.clone()
-        z_1 = z[0:128]
-        #z_2 = z[128:256]
+        for i in range(num_domain):
+            start = i*batch_size
+            end = (i+1)*batch_size
+            z_i = z[start : end]
         #print('Debugggg', z_noisy - z)
-        z1 = self.forward_channel(z_1,chan_types[0], snr_vals[0])
-        #z2 = self.forward_channel(z_2,chan_types[1], snr_vals[1])
-        z_noisy[0:128] = z1
-        #z_noisy[128:256] = z2
+            zi_noise = self.forward_channel(z_i,chan_types[i], snr_vals[i])
+            z_noisy[start : end] = zi_noise
+            print('start: ', start)
+            print('end: ',end)
+        # z_1 = z[0:128]
+        # z_2 = z[128:256]
+        # #print('Debugggg', z_noisy - z)
+        # z1 = self.forward_channel(z_1,chan_types[0], snr_vals[0])
+        # z2 = self.forward_channel(z_2,chan_types[1], snr_vals[1])
+        # z_noisy[0:128] = z1
+        # z_noisy[128:256] = z2
         return z_noisy

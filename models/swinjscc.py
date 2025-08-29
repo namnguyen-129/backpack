@@ -52,8 +52,8 @@ class SWINJSCC(BaseModel):
         module.output = output
         #print(f"Hook called for module {module}, output shape: {output.shape}")
 
-    def feature_pass_channel(self, feature,chan_type, snr_chan):
-        noisy_feature = self.channel.forward(feature,chan_type, snr_chan)  
+    def feature_pass_channel(self, feature,chan_type, snr_chan,num_domain):
+        noisy_feature = self.channel.forward(feature,chan_type, snr_chan,num_domain)  
         return noisy_feature
 
 
@@ -148,7 +148,7 @@ class SWINJSCC(BaseModel):
             snr_list.append(s)
         return chan_list, snr_list
     
-    def channel_perturb(self, input_image, domain_list):
+    def channel_perturb(self, input_image, domain_list, num_domain):
         B, _, H, W = input_image.shape
         batch_size = 128
         if H != self.H or W != self.W:
@@ -172,7 +172,7 @@ class SWINJSCC(BaseModel):
             # Qua kênh
         #self.change_channel(channel_type=chan_type, snr=snr_chan)
             #print("Name of channel: ", self.channel.get_channel())
-        noisy_feature_4D = self.feature_pass_channel(feature_4D,chan_type_list, snr_chan_list)        
+        noisy_feature_4D = self.feature_pass_channel(feature_4D,chan_type_list, snr_chan_list,num_domain)        
         noisy_feature = noisy_feature_4D.flatten(2).permute(0, 2, 1)
 
 
